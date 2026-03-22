@@ -1,0 +1,63 @@
+name: Deploy API to Swarm
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, swarm, serverhcm01]
+
+    env:
+      APP_NAME: todo
+      STACK_NAME: todo-api
+      STACK_DIR: /opt/stacks/todo-api
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/todo-api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set tag
+        run: echo "IMAGE_TAG=sha-${GITHUB_SHA}" >> $GITHUB_ENV
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build image
+        run: docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+
+      - name: Push image
+        run: docker push ${IMAGE_NAME}:${IMAGE_TAG}
+
+      - name: Prepare stack dir
+        run: |
+          mkdir -p ${STACK_DIR}
+          cp stack.yml ${STACK_DIR}/stack.yml
+
+      - name: Write runtime env file for stack interpolation
+        run: |
+          cat > ${STACK_DIR}/.deploy.env <<EOF
+          IMAGE_TAG=${IMAGE_TAG}
+          EOF
+
+      - name: Deploy stack
+        run: |
+          cd ${STACK_DIR}
+          export $(cat .deploy.env | xargs)
+          docker stack deploy --with-registry-auth -c stack.yml ${STACK_NAME}
+
+      - name: Verify services
+        run: |
+          docker stack services ${STACK_NAME}
+          docker service ps ${STACK_NAME}_api --no-trunc | head -n 20
+          docker service ps ${STACK_NAME}_cron --no-trunc | head -n 20
+
+      - name: Verify health
+        run: |
+          sleep 10
+          curl -fsS https://api-todo.phamvuong.io.vn/health

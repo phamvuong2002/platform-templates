@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  web:
+    image: ghcr.io/YOUR_GH_OWNER/todo-web:${IMAGE_TAG}
+    networks:
+      - edge
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 30s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=edge
+        - traefik.http.routers.todo-web.rule=Host(`app-todo.phamvuong.io.vn`)
+        - traefik.http.routers.todo-web.entrypoints=web
+        - traefik.http.services.todo-web.loadbalancer.server.port=80
+
+networks:
+  edge:
+    external: true
